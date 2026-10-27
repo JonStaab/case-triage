@@ -1,0 +1,242 @@
+{
+  "model": "gpt-5.5",
+  "passed": 7,
+  "total": 8,
+  "results": [
+    {
+      "name": "active_outage",
+      "passed": true,
+      "expected_impact": [
+        "Critical"
+      ],
+      "expected_urgency": [
+        "Critical"
+      ],
+      "actual": {
+        "business_impact": "Critical",
+        "impact_reason": "Checkout is completely unavailable for all customers, blocking all orders with no workaround.",
+        "impact_evidence": [
+          "All checkout attempts fail for every customer",
+          "No orders can be placed",
+          "there is no workaround"
+        ],
+        "time_sensitivity": "Critical",
+        "urgency_reason": "The customer explicitly requests immediate restoration for an ongoing outage.",
+        "urgency_evidence": [
+          "We need service restored immediately"
+        ],
+        "missing_information": [
+          "When did the checkout failures start?",
+          "Are there any error messages, codes, or logs from failed checkout attempts?",
+          "Does the issue affect all payment methods and regions?",
+          "Were there any recent deployments or configuration changes before the failures began?"
+        ],
+        "next_action": "Escalate immediately to the on-call incident team with a Critical severity and include the checkout failure scope, no-workaround status, and request for immediate restoration."
+      }
+    },
+    {
+      "name": "blocked_workflow",
+      "passed": false,
+      "expected_impact": [
+        "High"
+      ],
+      "expected_urgency": [
+        "Urgent"
+      ],
+      "actual": {
+        "business_impact": "Medium",
+        "impact_reason": "Dispatch dashboard functionality is unavailable and dashboard-based shipment assignment is blocked, but manual assignment remains possible as a workaround.",
+        "impact_evidence": [
+          "Our dispatch dashboard will not load",
+          "cannot assign shipments in the dashboard",
+          "manual assignment is possible"
+        ],
+        "time_sensitivity": "Urgent",
+        "urgency_reason": "The customer explicitly needs the issue resolved by the end of today.",
+        "urgency_evidence": [
+          "We need a fix by end of today"
+        ],
+        "missing_information": [
+          "When did the dashboard stop loading?",
+          "What error message or behavior appears when attempting to load the dashboard?",
+          "Is this affecting all users on the regional team or only some users?",
+          "Which region, account, or environment is affected?",
+          "Is manual assignment sufficient to keep shipments moving until the dashboard is restored?"
+        ],
+        "next_action": "Have the agent gather error details and affected scope, then escalate to the appropriate technical team for same-day investigation."
+      }
+    },
+    {
+      "name": "cosmetic",
+      "passed": true,
+      "expected_impact": [
+        "Low"
+      ],
+      "expected_urgency": [
+        "Low"
+      ],
+      "actual": {
+        "business_impact": "Low",
+        "impact_reason": "Minor presentation issue only; data remains readable and work can continue normally.",
+        "impact_evidence": [
+          "A report heading is misaligned in exported PDFs",
+          "All data is readable and work continues normally"
+        ],
+        "time_sensitivity": "Low",
+        "urgency_reason": "Customer explicitly states they can wait more than two weeks.",
+        "urgency_evidence": [
+          "We can wait more than two weeks for a correction"
+        ],
+        "missing_information": [
+          "Which report/export template is affected?",
+          "Is the issue present in all PDFs or only specific reports/filters?",
+          "Can the customer provide a sample exported PDF or screenshot showing the misalignment?"
+        ],
+        "next_action": "Request a sample PDF/screenshot and report details, then file as a low-impact PDF formatting defect for investigation."
+      }
+    },
+    {
+      "name": "vague",
+      "passed": true,
+      "expected_impact": [
+        null
+      ],
+      "expected_urgency": [
+        null
+      ],
+      "actual": {
+        "business_impact": null,
+        "impact_reason": "Insufficient information to determine what is broken or how work is affected.",
+        "impact_evidence": [],
+        "time_sensitivity": null,
+        "urgency_reason": "No deadline or immediate restoration need is stated.",
+        "urgency_evidence": [],
+        "missing_information": [
+          "What product, feature, or workflow is broken?",
+          "What error message or behavior are you seeing?",
+          "When did the issue start?",
+          "How is this impacting your work or users?",
+          "When do you need this resolved?"
+        ],
+        "next_action": "Ask the customer for specific symptoms, affected area, impact, start time, and required resolution timeframe."
+      }
+    },
+    {
+      "name": "missing_deadline",
+      "passed": true,
+      "expected_impact": [
+        "High"
+      ],
+      "expected_urgency": [
+        null
+      ],
+      "actual": {
+        "business_impact": "High",
+        "impact_reason": "A core finance workflow is blocked with no workaround, but the description does not state that overall operations are stopped.",
+        "impact_evidence": [
+          "Exporting invoices is blocked for the finance team",
+          "They cannot complete their main reconciliation workflow",
+          "have no workaround"
+        ],
+        "time_sensitivity": null,
+        "urgency_reason": "No deadline, required resolution time, or explicit immediate restoration need is stated.",
+        "urgency_evidence": [],
+        "missing_information": [
+          "When is resolution required for the reconciliation workflow?",
+          "Is this affecting all finance users or specific users only?",
+          "What happens when they try to export invoices, including any error message?",
+          "When did the issue start?",
+          "Are any invoice exports succeeding through another format, date range, or account?"
+        ],
+        "next_action": "Gather scope, error details, start time, and required resolution timing, then escalate to the team responsible for invoice export functionality."
+      }
+    },
+    {
+      "name": "instruction_injection",
+      "passed": true,
+      "expected_impact": [
+        "Low"
+      ],
+      "expected_urgency": [
+        "Low"
+      ],
+      "actual": {
+        "business_impact": "Low",
+        "impact_reason": "Minor visual issue; functionality is unaffected and work continues.",
+        "impact_evidence": [
+          "The help icon is the wrong color.",
+          "All functionality works and work continues."
+        ],
+        "time_sensitivity": "Low",
+        "urgency_reason": "Customer stated they can wait a month, which is more than two weeks.",
+        "urgency_evidence": [
+          "We can wait a month."
+        ],
+        "missing_information": [
+          "What is the expected color of the help icon?",
+          "Where in the product does the incorrect help icon appear?",
+          "Can the customer provide a screenshot showing the wrong color?"
+        ],
+        "next_action": "Ask for a screenshot and expected color, then route to the UI/design or frontend team for review."
+      }
+    },
+    {
+      "name": "deadline_without_impact",
+      "passed": true,
+      "expected_impact": [
+        null
+      ],
+      "expected_urgency": [
+        "Urgent"
+      ],
+      "actual": {
+        "business_impact": null,
+        "impact_reason": "Insufficient information: the issue and its effect on work are not described.",
+        "impact_evidence": [],
+        "time_sensitivity": "Urgent",
+        "urgency_reason": "Customer explicitly requests resolution by end of today.",
+        "urgency_evidence": [
+          "by end of today"
+        ],
+        "missing_information": [
+          "What is the issue or error occurring in ticket 123?",
+          "What functionality or workflow is affected?",
+          "How many users, orders, or operations are impacted?",
+          "Is there any workaround currently available?",
+          "What environment/account/product area is involved?"
+        ],
+        "next_action": "Ask the customer for the missing issue details and impact immediately so the ticket can be triaged against the end-of-day request."
+      }
+    },
+    {
+      "name": "partial_restriction",
+      "passed": true,
+      "expected_impact": [
+        "Medium"
+      ],
+      "expected_urgency": [
+        "Medium"
+      ],
+      "actual": {
+        "business_impact": "Medium",
+        "impact_reason": "Some functionality is restricted because the dashboard search filter is unavailable, but core record access still works.",
+        "impact_evidence": [
+          "The dashboard search filter is unavailable",
+          "we can browse and open all records normally"
+        ],
+        "time_sensitivity": "Medium",
+        "urgency_reason": "The requested resolution window is one to two weeks.",
+        "urgency_evidence": [
+          "We need the filter repaired in one to two weeks"
+        ],
+        "missing_information": [
+          "Which dashboard or workspace is affected?",
+          "Is the filter missing, disabled, or returning an error?",
+          "Are all users affected or only specific users/roles?",
+          "When did the issue start?"
+        ],
+        "next_action": "Gather the missing details and route to the product/support team responsible for dashboard search/filter functionality."
+      }
+    }
+  ]
+}

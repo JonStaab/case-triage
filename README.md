@@ -1,14 +1,34 @@
 # Case Triage
 
-A support triage prototype for small B2B support and customer success teams. Agents record customer issues, assess business impact and urgency using concrete definitions, and review a queue sorted by calculated priority. Optional AI summaries condense the issue without deciding its priority.
+A support triage prototype for small B2B support and customer success teams. Agents record customer issues, assess business impact and urgency using concrete definitions, and review a queue sorted by calculated priority. An AI triage assistant suggests impact and urgency, cites exact evidence from the issue, asks missing questions, and recommends a next action. Agents review and edit suggestions before applying them. Optional AI summaries remain available.
 
 Built with FastAPI, plain HTML/CSS/JavaScript, JSON persistence, and the OpenAI Responses API. This is a portfolio prototype, not a production support platform.
+
+Read the [development case study](CASE_STUDY.md) for design decisions, reliability checks, evaluation results, and AI-assisted development disclosure. The app also links to a public case-study page.
 
 ## Triage decisions
 
 The customer supplies the facts; a support agent selects impact and urgency. Customer tier follows company policy. This prototype preserves its original example revenue bands: Low under $5m, Medium $5m–$10m, High over $10m annual revenue.
 
-Priority adds the tier score (1–3), impact score (1–4), and time sensitivity score (1–5): totals 3–4 are P4, 5–7 P3, 8–10 P2, and 11–12 P1. Critical impact with Critical sensitivity always yields P1. AI only summarizes; the original issue remains visible.
+Priority adds the tier score (1–3), impact score (1–4), and time sensitivity score (1–5): totals 3–4 are P4, 5–7 P3, 8–10 P2, and 11–12 P1. Critical impact with Critical sensitivity always yields P1. AI proposes impact and urgency using the rubric, while the human decides what to apply. The original issue remains visible and the final priority is calculated by the rules above.
+
+## AI triage assistant
+
+Use **Suggest triage** on the intake form or an existing case. The assistant returns suggested business impact and time sensitivity, concise reasons, supporting quotes, up to five clarification questions, and a suggested next action. It can leave either rating unanswered when the description lacks evidence. The model does not set customer tier or directly decide final priority.
+
+Review and edit both dropdowns, check the review confirmation, then **Apply reviewed choices**. Intake suggestions populate the form; **Create case** still saves it. Existing-case reviews save only the reviewed impact/urgency and recalculate priority. A stale review receives a conflict response rather than overwriting another update. Editing intake fields invalidates an old suggestion.
+
+The integration uses OpenAI Structured Outputs (`responses.parse` with a Pydantic schema). Issue descriptions are treated as untrusted data, not instructions. The server rejects supporting quotes that do not occur verbatim in the issue. These checks validate structure and evidence presence, not the correctness of the reasoning. Requests are on demand, with no automatic retries for triage and `store=False`. Your existing OPENAI_API_KEY and OPENAI_MODEL settings work; no new production dependency is needed.
+
+### Evaluation and tests
+
+Install optional test dependencies: `pip install -r requirements-dev.txt`.
+Run deterministic API tests: `python -m unittest discover -s tests -v`.
+Run the paid, synthetic live-model evaluation: `python evals/evaluate_triage.py`.
+
+The initial live run scored **7/8** on expected impact/urgency ratings. Outage, cosmetic issue, vague issue, missing deadline, instruction injection, deadline without impact, and partial restriction passed. In the dispatch case, the expected High impact was returned as Medium because manual assignment remained possible; the reasoning was grounded, but disagreed with the expected label. The original result is retained in `evals/latest-results.json`. This small smoke evaluation is not a production accuracy estimate or a guarantee against prompt injection. No real customer records are used.
+
+Ten API tests cover structured response handling, abstention, validation, missing key, invalid evidence/refusal, unchanged previews, reviewed save/persistence, disk failure rollback, concurrent review conflict, and missing cases. Browser checks cover intake suggestion/review/apply/create and an existing-case human revision from Critical to High, with priority recomputed from P1 to P2.
 
 ## Fictional demo
 
@@ -27,7 +47,7 @@ Verified create/list/detail flows in a browser, JSON persistence after a server 
 
 ## Known limits
 
-No authentication, priority overrides, audit history, or saved summaries. JSON requires one service instance and one worker. A public deployment lets visitors read/create cases and request summaries using the server's API key. Use fictional data for a public demo.
+No authentication, audit history, or saved AI suggestions/summaries. Humans can revise impact and urgency after AI review; there is no direct priority override. JSON requires one service instance and one worker. A public deployment lets visitors read/create cases and request AI suggestions and summaries using the server's API key. Use fictional data for a public demo.
 
 ## Windows quick start
 
@@ -55,7 +75,7 @@ Create a repository containing only these application files: Case_Management.py,
 
 In Render, create a Blueprint from that repository using render.yaml. This provisions a paid Starter web service and 1 GB persistent disk (review current cost before provisioning). Enter OPENAI_API_KEY as a secret environment variable. OPENAI_MODEL defaults to the existing gpt-5.5; change it if your OpenAI project does not have access. Build: `pip install -r requirements.txt`. Start: `uvicorn Case_Management:app --host 0.0.0.0 --port $PORT --workers 1`. Health check: /health. JSON path: /var/data/cases.json. A free service's ephemeral filesystem cannot preserve cases across restarts/deploys.
 
-After deployment, create a demo case, refresh, open it, generate a summary, and restart the service to verify persistence. This V1 has no authentication: everyone with the URL can read/create cases and request paid summaries. Use synthetic demo data and set an OpenAI project spending limit before sharing the URL.
+After deployment, create a demo case, refresh, open it, generate a summary, and restart the service to verify persistence. This V1 has no authentication: everyone with the URL can read/create cases and request paid AI suggestions and summaries. Use synthetic demo data and set an OpenAI project spending limit before sharing the URL.
 
 ## API
 
@@ -63,6 +83,8 @@ After deployment, create a demo case, refresh, open it, generate a summary, and 
 - GET /cases/{case_id}
 - POST /cases (customer_name, issue_description, customer_tier, business_impact, time_sensitivity)
 - POST /cases/{case_id}/summary
+- POST /triage (issue_description, customer_tier; returns suggestions without saving)
+- PATCH /cases/{case_id}/triage (reviewed ratings plus expected original values for conflict detection)
 - GET /health
 
 Tier: Low/Medium/High. Impact: Low/Medium/High/Critical. Sensitivity: Low/Medium/High/Urgent/Critical. Priority rules are preserved, including the Critical impact + Critical sensitivity P1 override.
