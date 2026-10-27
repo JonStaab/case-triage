@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: case-triage
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn Case_Management:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.9
+      - key: CASES_FILE
+        value: /var/data/cases.json
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+    disk:
+      name: case-data
+      mountPath: /var/data
+      sizeGB: 1

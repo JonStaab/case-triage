@@ -1,0 +1,29 @@
+[
+  {
+    "unique_id": "demo-001",
+    "customer_name": "Northstar Supply (fictional)",
+    "issue_description": "All customers receive an error at checkout. No orders can be placed, and the team has no workaround. Operations need to resume immediately.",
+    "customer_tier": "High",
+    "business_impact": "Critical",
+    "time_sensitivity": "Critical",
+    "priority": "P1"
+  },
+  {
+    "unique_id": "demo-002",
+    "customer_name": "Cedar Logistics (fictional)",
+    "issue_description": "The dispatch dashboard will not load, blocking shipment assignment for one regional team. Manual assignment is possible but cannot keep up. Resolution is needed by end of today.",
+    "customer_tier": "Medium",
+    "business_impact": "High",
+    "time_sensitivity": "Urgent",
+    "priority": "P2"
+  },
+  {
+    "unique_id": "demo-003",
+    "customer_name": "Willow Studio (fictional)",
+    "issue_description": "A report heading is misaligned in exported PDFs. All report data remains readable, and work can continue. A correction can wait until next month.",
+    "customer_tier": "Low",
+    "business_impact": "Low",
+    "time_sensitivity": "Low",
+    "priority": "P4"
+  }
+]
