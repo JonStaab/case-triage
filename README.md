@@ -14,9 +14,9 @@ Priority adds the tier score (1–3), impact score (1–4), and time sensitivity
 
 ## AI triage assistant
 
-Use **Suggest triage** on the intake form or an existing case. The assistant returns suggested business impact and time sensitivity, concise reasons, supporting quotes, up to five clarification questions, and a suggested next action. It can leave either rating unanswered when the description lacks evidence. The model does not set customer tier or directly decide final priority.
+Use **Suggest triage** on the intake form or an existing case. The assistant returns suggested business impact and time sensitivity, concise reasons, supporting quotes, up to five clarification questions, and a suggested next action. It can leave either rating unanswered when the description lacks evidence. The model does not set customer tier or directly decide final priority. Unanswered ratings show Select a rating, not Low; the intake form also starts with unselected impact/urgency fields.
 
-Review and edit both dropdowns, check the review confirmation, then **Apply reviewed choices**. Intake suggestions populate the form; **Create case** still saves it. Existing-case reviews save only the reviewed impact/urgency and recalculate priority. A stale review receives a conflict response rather than overwriting another update. Editing intake fields invalidates an old suggestion.
+Review and edit both dropdowns, check the review confirmation, then **Apply reviewed choices**. Intake suggestions populate the form; **Create case** still saves it. Existing-case reviews save only the reviewed impact/urgency and recalculate priority. A stale review receives a conflict response rather than overwriting another update, including changes to saved clarification answers. Editing intake fields invalidates an old suggestion.
 
 The integration uses OpenAI Structured Outputs (`responses.parse` with a Pydantic schema). Issue descriptions are treated as untrusted data, not instructions. The server rejects supporting quotes that do not occur verbatim in the issue. These checks validate structure and evidence presence, not the correctness of the reasoning. Requests are on demand, with no automatic retries for triage and `store=False`. Your existing OPENAI_API_KEY and OPENAI_MODEL settings work; no new production dependency is needed.
 
@@ -28,7 +28,7 @@ Run the paid, synthetic live-model evaluation: `python evals/evaluate_triage.py`
 
 The initial live run scored **7/8** on expected impact/urgency ratings. Outage, cosmetic issue, vague issue, missing deadline, instruction injection, deadline without impact, and partial restriction passed. In the dispatch case, the expected High impact was returned as Medium because manual assignment remained possible; the reasoning was grounded, but disagreed with the expected label. The original result is retained in `evals/latest-results.json`. This small smoke evaluation is not a production accuracy estimate or a guarantee against prompt injection. No real customer records are used.
 
-Ten API tests cover structured response handling, abstention, validation, missing key, invalid evidence/refusal, unchanged previews, reviewed save/persistence, disk failure rollback, concurrent review conflict, and missing cases. Browser checks cover intake suggestion/review/apply/create and an existing-case human revision from Critical to High, with priority recomputed from P1 to P2.
+The original ten API tests cover structured response handling, abstention, validation, missing key, invalid evidence/refusal, unchanged previews, reviewed save/persistence, disk failure rollback, concurrent review conflict, and missing cases. Browser checks cover intake suggestion/review/apply/create and an existing-case human revision from Critical to High, with priority recomputed from P1 to P2.
 
 ## Fictional demo
 
@@ -47,7 +47,7 @@ Verified create/list/detail flows in a browser, JSON persistence after a server 
 
 ## Known limits
 
-No authentication, audit history, or saved AI suggestions/summaries. Humans can revise impact and urgency after AI review; there is no direct priority override. JSON requires one service instance and one worker. A public deployment lets visitors read/create cases and request AI suggestions and summaries using the server's API key. Use fictional data for a public demo.
+No authentication, full audit history, or saved AI suggestions/summaries. Customer clarification questions and answers are saved separately from the original description. Humans can revise impact and urgency after AI review; there is no direct priority override. JSON requires one service instance and one worker. A public deployment lets visitors read/create cases and request AI suggestions and summaries using the server's API key. Use fictional data for a public demo.
 
 ## Windows quick start
 
@@ -67,7 +67,7 @@ CLI remains available with `python Case_Management.py`. Stop the web server befo
 
 ## Storage
 
-Existing cases.json and Case fields remain compatible. CASES_FILE optionally sets an absolute JSON path; the default is cases.json beside the Python module. New installations start empty. Writes use atomic replacement, and API creates are serialized in one process. Run exactly ONE worker and ONE service instance. Do not run separate CLI/web writers together. Invalid existing JSON intentionally stops startup rather than silently overwriting data. Back up the JSON regularly. Summaries are returned on request and are not saved.
+Existing cases.json and Case fields remain compatible. Cases with answers include an optional clarifications list (question/answer pairs); older records without it still load. The original issue_description is preserved. CASES_FILE optionally sets an absolute JSON path; the default is cases.json beside the Python module. New installations start empty. Writes use atomic replacement, and API creates are serialized in one process. Run exactly ONE worker and ONE service instance. Do not run separate CLI/web writers together. Invalid existing JSON intentionally stops startup rather than silently overwriting data. Back up the JSON regularly. Summaries are returned on request and are not saved.
 
 ## Deploy from GitHub to Render
 
@@ -83,9 +83,23 @@ After deployment, create a demo case, refresh, open it, generate a summary, and 
 - GET /cases/{case_id}
 - POST /cases (customer_name, issue_description, customer_tier, business_impact, time_sensitivity)
 - POST /cases/{case_id}/summary
-- POST /triage (issue_description, customer_tier; returns suggestions without saving)
+- POST /triage (issue_description, customer_tier, optional clarifications; returns suggestions without saving)
 - PATCH /cases/{case_id}/triage (reviewed ratings plus expected original values for conflict detection)
+- PATCH /cases/{case_id}/clarifications (save answers without changing ratings; optimistic conflict detection)
 - GET /health
 
 Tier: Low/Medium/High. Impact: Low/Medium/High/Critical. Sensitivity: Low/Medium/High/Urgent/Critical. Priority rules are preserved, including the Critical impact + Critical sensitivity P1 override.
 
+
+
+## Answering clarification questions
+
+Each AI follow-up question has an optional answer textarea. Leave unknown answers blank. **Reassess with answers** sends the original issue plus reported answers for a fresh assessment; questions themselves are never treated as facts or accepted as supporting evidence. Edited answers disable applying the old assessment until reassessment or an explicit context save.
+
+For intake, **Keep answers in form** retains context for the next suggestion or case creation. Reassessment also retains the answered context in the form. **Apply reviewed choices** fills impact/urgency and retains answers, while **Create case** persists them. Unsaved answer edits cannot be silently omitted by case creation.
+
+For existing cases, **Save answers to case** persists the context without changing the original issue, impact, urgency, or priority. Alternatively, **Apply reviewed choices** saves the reviewed ratings together with assessed answers. Reopening the case shows the saved Q&A, and subsequent AI triage and summary requests include it. Suggestions and next actions remain transient.
+
+Bounds: at most 20 Q&A entries, 500 characters per question, 1,500 per answer. Customer answers are reported facts, not independently verified data. Conflicting facts should trigger a clarification question.
+
+Eight additional API tests cover legacy loading, Q&A round trips, answer-only save, reviewed save, stale-context conflicts, bounds validation, failed-save rollback, evidence from answers (but not questions), and summaries using saved context. Together with the original ten tests, all **18 tests** pass.

@@ -19,7 +19,7 @@ The old rules are a starting rubric, not evidence that this is the best policy f
 1. The agent enters an issue or opens an existing case.
 2. The AI returns a structured proposal, not a saved decision.
 3. The UI displays reasons and exact evidence quotes alongside editable ratings.
-4. If evidence is missing, the AI can leave a rating unanswered and ask a question. The UI clearly identifies retained human choices.
+4. If evidence is missing, the AI can leave a rating unanswered and ask a question. The UI leaves unanswered ratings unselected. Agents can answer follow-up questions in place and reassess with the added context.
 5. The agent reviews both ratings and explicitly applies the result. On an intake form, case creation is still a separate step.
 6. Saving an existing-case review recalculates priority. A conflicting update is rejected so an old review cannot silently overwrite a newer one.
 
@@ -36,7 +36,7 @@ These measures do not prove the model's reasoning is correct. A valid quote can 
 
 ## What was tested
 
-Ten deterministic API tests cover input validation, missing credentials, structured responses, invalid or invented evidence, unanswered ratings, preview without mutation, reviewed-save persistence, failed-write rollback, concurrent review conflicts, and missing cases. The original backend regression checks cover all 60 priority combinations, existing routes, summary response/error paths, 20 concurrent creates, and JSON reload.
+The initial ten deterministic API tests cover input validation, missing credentials, structured responses, invalid or invented evidence, unanswered ratings, preview without mutation, reviewed-save persistence, failed-write rollback, concurrent review conflicts, and missing cases. The original backend regression checks cover all 60 priority combinations, existing routes, summary response/error paths, 20 concurrent creates, and JSON reload.
 
 Browser testing verified suggestion → review → apply → create, then an existing-case human revision from Critical impact to High and a resulting priority change from P1 to P2.
 
@@ -44,9 +44,17 @@ The first live-model evaluation used eight synthetic support issues. Seven match
 
 This is a small development evaluation, not a production accuracy estimate. No real customer records were used.
 
+## Closing the clarification loop
+
+A demo user identified a real gap: the AI asked useful questions, but there was nowhere to answer them. This led to answer fields below each question and a **Reassess with answers** action. Intake answers stay with the form until a case is created; an existing case can save answers without changing its ratings. Applying a reviewed assessment can save both ratings and context.
+
+The original description remains intact. Saved Q&A is visible on reopening and included in later assessments and summaries. The server checks quotes against actual description/answer text, not against the wording of a question. Unknown ratings no longer default to Low. An explicit selection and human confirmation are required before applying ratings.
+
+Eight additional API tests exercise persistence, compatibility, optimistic conflicts, validation, rollback, answer evidence, and summary context. All 18 deterministic API tests pass. A live synthetic browser check starts with an underspecified raw-material-cost issue, answers the follow-up questions, and verifies reassessment using those answers.
+
 ## Tradeoffs
 
-Plain web technologies and JSON kept the first release small and deployable. JSON requires one service instance and one worker. AI reasons, questions, and next actions are currently transient rather than stored in an audit record. There is no retrieval system or agent framework because this version does not need either to accomplish its workflow.
+Plain web technologies and JSON kept the first release small and deployable. JSON requires one service instance and one worker. AI reasoning and next actions remain transient rather than stored in an audit record. Customer clarification questions and answers are saved separately from the original issue and included in subsequent assessments and summaries. There is no retrieval system or agent framework because this version does not need either to accomplish its workflow.
 
 ## What would come next
 

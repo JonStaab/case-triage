@@ -1,6 +1,7 @@
 const $ = selector => document.querySelector(selector);
 let selectedId = null;
 let intakeVersion = 0;
+let intakeClarifications = [];
 const labels = {P1: 'Critical', P2: 'High', P3: 'Medium', P4: 'Low'};
 const impacts = ['Low', 'Medium', 'High', 'Critical'];
 const urgencies = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
@@ -42,6 +43,9 @@ function ratingSelect(title, values, value) {
     const label = el('label', title);
     const select = el('select');
     select.setAttribute('aria-label', title);
+    const placeholder = el('option', 'Select a rating');
+    placeholder.value = '';
+    select.append(placeholder);
     values.forEach(value => {
         const option = el('option', value);
         option.value = value;
@@ -51,11 +55,22 @@ function ratingSelect(title, values, value) {
     label.append(select);
     return {label, select};
 }
-function showSuggestion(container, suggestion, current, onApply, isCurrent) {
+function renderClarifications(container, notes, title) {
+    container.replaceChildren();
+    if (!notes.length) return;
+    container.append(el('h4', title));
+    notes.forEach(note => {
+        const entry = el('div', undefined, 'clarification-entry');
+        entry.append(el('strong', note.question), el('p', note.answer, 'description'));
+        container.append(entry);
+    });
+}
+function showSuggestion(container, suggestion, context, callbacks) {
     container.replaceChildren();
     container.hidden = false;
+    container.dataset.pendingAnswers = '';
     container.append(el('h3', 'Review AI suggestions'),
-        el('p', 'AI can be wrong. Check the evidence, edit the choices, then apply. Customer tier stays unchanged.', 'muted'));
+        el('p', 'AI can be wrong. Answer follow-up questions or review and edit the ratings before applying them. Customer tier stays unchanged.', 'muted'));
     for (const [title, value, reason, evidence] of [
         ['Business impact', suggestion.business_impact, suggestion.impact_reason, suggestion.impact_evidence],
         ['Time sensitivity', suggestion.time_sensitivity, suggestion.urgency_reason, suggestion.urgency_evidence]
@@ -66,14 +81,29 @@ function showSuggestion(container, suggestion, current, onApply, isCurrent) {
     if (suggestion.suggested_priority) {
         container.append(el('p', `Rule-based preview: ${suggestion.suggested_priority} · ${labels[suggestion.suggested_priority]}. Recalculated when you apply your reviewed choices.`, 'muted'));
     }
+    const history = el('div');
+    renderClarifications(history, context.clarifications, 'Context used in this assessment');
+    container.append(history);
+    const answerFields = [];
     if (suggestion.missing_information.length) {
-        const list = el('ul');
-        suggestion.missing_information.forEach(question => list.append(el('li', question)));
-        container.append(el('h4', 'Questions to ask'), list);
+        container.append(el('h4', 'Answer follow-up questions'),
+            el('p', 'Enter what you know. Leave unknown answers blank. Reassess to use the answers, or save them without changing ratings.', 'muted'));
+        suggestion.missing_information.forEach(question => {
+            const label = el('label', question);
+            const answer = el('textarea');
+            answer.rows = 2;
+            answer.maxLength = 1500;
+            answer.setAttribute('aria-label', question);
+            answer.placeholder = 'Your answer (optional)';
+            answer.value = context.clarifications.find(note => note.question === question)?.answer || '';
+            answerFields.push({question, answer, original: answer.value});
+            label.append(answer);
+            container.append(label);
+        });
     }
     container.append(el('h4', 'Suggested next action'), el('p', suggestion.next_action));
-    const impact = ratingSelect('Reviewed business impact', impacts, suggestion.business_impact || current.business_impact);
-    const urgency = ratingSelect('Reviewed time sensitivity', urgencies, suggestion.time_sensitivity || current.time_sensitivity);
+    const impact = ratingSelect('Reviewed business impact', impacts, suggestion.business_impact || '');
+    const urgency = ratingSelect('Reviewed time sensitivity', urgencies, suggestion.time_sensitivity || '');
     const fields = el('div', undefined, 'review-fields');
     fields.append(impact.label, urgency.label);
     const confirmed = el('input');
@@ -82,22 +112,82 @@ function showSuggestion(container, suggestion, current, onApply, isCurrent) {
     confirmation.append(confirmed, el('span', 'I reviewed both ratings, including any choice the AI could not determine.'));
     const apply = el('button', 'Apply reviewed choices');
     apply.type = 'button';
-    apply.disabled = true;
-    confirmed.onchange = () => { apply.disabled = !confirmed.checked; };
+    let busy = false;
+    const refreshApply = () => {
+        apply.disabled = busy || !confirmed.checked || !impact.select.value || !urgency.select.value || container.dataset.pendingAnswers === 'true';
+    };
+    confirmed.onchange = refreshApply;
     impact.select.onchange = urgency.select.onchange = () => {
         confirmed.checked = false;
-        apply.disabled = true;
+        refreshApply();
     };
-    apply.onclick = async () => {
-        if (!isCurrent()) { notice('The issue or customer tier changed. Request a new suggestion.', true); return; }
-        apply.disabled = true;
-        try { await onApply(impact.select.value, urgency.select.value); }
-        catch (error) { notice(error.message, true); apply.disabled = false; }
-    };
-    container.append(fields);
-    if (!suggestion.business_impact || !suggestion.time_sensitivity) {
-        container.append(el('p', 'For any unanswered rating, the dropdown retains your current choice. Confirm it yourself or gather more information before applying.', 'muted'));
+    answerFields.forEach(({answer}) => {
+        answer.oninput = () => {
+            container.dataset.pendingAnswers = String(answerFields.some(field => field.answer.value !== field.original));
+            confirmed.checked = false;
+            refreshApply();
+        };
+    });
+    function collectAnswers() {
+        const merged = new Map(context.clarifications.map(note => [note.question, {...note}]));
+        answerFields.forEach(({question, answer, original}) => {
+            const value = answer.value.trim();
+            if (value) merged.set(question, {question, answer: value});
+            else if (original) merged.delete(question);
+        });
+        if (merged.size > 20) throw new Error('This case has reached the limit of 20 clarification answers.');
+        return [...merged.values()];
     }
+    const actions = el('div', undefined, 'clarification-actions');
+    if (answerFields.length || context.clarifications.length) {
+        const reassess = el('button', 'Reassess with answers', 'secondary');
+        const save = el('button', callbacks.saveLabel, 'secondary');
+        reassess.type = save.type = 'button';
+        const run = async work => {
+            if (!callbacks.isCurrent()) { notice('The case or form changed. Request a fresh suggestion.', true); return; }
+            busy = true;
+            reassess.disabled = save.disabled = true;
+            refreshApply();
+            try { await work(collectAnswers()); }
+            catch (error) { notice(error.message, true); }
+            finally {
+                busy = false;
+                reassess.disabled = save.disabled = false;
+                refreshApply();
+            }
+        };
+        reassess.onclick = () => run(async notes => {
+            if (!notes.length) throw new Error('Enter at least one answer before reassessing.');
+            reassess.textContent = 'Reassessing…';
+            try {
+                const next = {...context, clarifications: notes};
+                const result = await api('/triage', jsonOptions('POST', next));
+                if (!callbacks.isCurrent()) throw new Error('The case or form changed. Request a fresh suggestion.');
+                callbacks.onContext(notes);
+                showSuggestion(container, result, next, callbacks);
+                notice('Reassessed using your answers. Review the updated suggestions before applying.');
+            } finally { reassess.textContent = 'Reassess with answers'; }
+        });
+        save.onclick = () => run(async notes => {
+            if (!notes.length && !context.clarifications.length) throw new Error('Enter at least one answer to save.');
+            await callbacks.onSave(notes);
+        });
+        actions.append(reassess, save);
+    }
+    container.append(actions, fields);
+    if (!suggestion.business_impact || !suggestion.time_sensitivity) {
+        container.append(el('p', 'Unanswered ratings are not Low. Provide more context and reassess, or explicitly select both ratings yourself.', 'muted'));
+    }
+    apply.onclick = async () => {
+        if (!callbacks.isCurrent()) { notice('The case or form changed. Request a fresh suggestion.', true); return; }
+        if (apply.disabled) return;
+        busy = true;
+        refreshApply();
+        try { await callbacks.onApply(impact.select.value, urgency.select.value, context.clarifications); }
+        catch (error) { notice(error.message, true); }
+        finally { busy = false; refreshApply(); }
+    };
+    refreshApply();
     container.append(confirmation, apply);
 }
 async function loadCases() {
@@ -147,6 +237,8 @@ async function openCase(id) {
             } catch (error) { notice(error.message, true); }
             finally { summaryButton.disabled = false; summaryButton.textContent = 'Generate AI summary'; }
         };
+        const savedContext = el('div');
+        renderClarifications(savedContext, c.clarifications || [], 'Saved clarification answers');
         const triageButton = el('button', 'Suggest triage');
         const review = el('div', undefined, 'triage-review');
         review.hidden = true;
@@ -154,26 +246,40 @@ async function openCase(id) {
             triageButton.disabled = true;
             triageButton.textContent = 'Assessing issue…';
             try {
-                const suggestion = await api('/triage', jsonOptions('POST', {
-                    issue_description: c.issue_description, customer_tier: c.customer_tier
-                }));
+                const context = {issue_description: c.issue_description, customer_tier: c.customer_tier,
+                    clarifications: c.clarifications || []};
+                const suggestion = await api('/triage', jsonOptions('POST', context));
                 if (selectedId !== id || !triageButton.isConnected) return;
-                showSuggestion(review, suggestion, c, async (impact, urgency) => {
-                    await api(`/cases/${encodeURIComponent(id)}/triage`, jsonOptions('PATCH', {
-                        business_impact: impact, time_sensitivity: urgency,
-                        expected_business_impact: c.business_impact,
-                        expected_time_sensitivity: c.time_sensitivity,
-                        expected_issue_description: c.issue_description
-                    }));
-                    await loadCases();
-                    if (selectedId === id) await openCase(id);
-                    notice('Reviewed triage saved. Priority recalculated using the existing rules.');
-                }, () => selectedId === id && triageButton.isConnected);
+                showSuggestion(review, suggestion, context, {
+                    isCurrent: () => selectedId === id && triageButton.isConnected,
+                    saveLabel: 'Save answers to case',
+                    onContext: () => {},
+                    onSave: async notes => {
+                        await api(`/cases/${encodeURIComponent(id)}/clarifications`, jsonOptions('PATCH', {
+                            clarifications: notes, expected_clarifications: c.clarifications || [],
+                            expected_issue_description: c.issue_description
+                        }));
+                        if (selectedId === id) await openCase(id);
+                        notice('Answers saved. Original description and case ratings are unchanged.');
+                    },
+                    onApply: async (impact, urgency, notes) => {
+                        await api(`/cases/${encodeURIComponent(id)}/triage`, jsonOptions('PATCH', {
+                            business_impact: impact, time_sensitivity: urgency,
+                            expected_business_impact: c.business_impact,
+                            expected_time_sensitivity: c.time_sensitivity,
+                            expected_issue_description: c.issue_description,
+                            clarifications: notes, expected_clarifications: c.clarifications || []
+                        }));
+                        await loadCases();
+                        if (selectedId === id) await openCase(id);
+                        notice('Reviewed triage and answers saved. Priority recalculated.');
+                    }
+                });
                 notice('AI suggestions ready for review. No case changes have been saved.');
             } catch (error) { notice(error.message, true); }
             finally { triageButton.disabled = false; triageButton.textContent = 'Suggest triage'; }
         };
-        panel.append(facts, el('h3', 'AI triage assistant'),
+        panel.append(facts, savedContext, el('h3', 'AI triage assistant'),
             el('p', 'Get evidence-based suggestions, questions, and a next action. You decide what to apply.', 'muted'),
             triageButton, review, el('h3', 'AI summary'), summaryButton, summary);
     } catch (error) { notice(error.message, true); }
@@ -184,6 +290,8 @@ function invalidateIntake() {
     intakeVersion++;
     intakeReview.hidden = true;
     intakeReview.replaceChildren();
+    intakeReview.dataset.pendingAnswers = '';
+    renderClarifications($('#intake-context'), intakeClarifications, 'Clarification answers to save with this case');
 }
 function handleFormEdit(event) {
     if (event.target.name) invalidateIntake();
@@ -199,25 +307,36 @@ $('#suggest-intake').onclick = async () => {
     button.disabled = true;
     button.textContent = 'Assessing issue…';
     try {
-        const suggestion = await api('/triage', jsonOptions('POST', {issue_description: description, customer_tier: tier}));
+        const context = {issue_description: description, customer_tier: tier, clarifications: intakeClarifications};
+        const suggestion = await api('/triage', jsonOptions('POST', context));
         if (version !== intakeVersion) { notice('The form changed. Request a fresh suggestion.', true); return; }
-        showSuggestion(intakeReview, suggestion, {
-            business_impact: form.elements.business_impact.value,
-            time_sensitivity: form.elements.time_sensitivity.value
-        }, async (impact, urgency) => {
-            form.elements.business_impact.value = impact;
-            form.elements.time_sensitivity.value = urgency;
-            invalidateIntake();
-            notice('Reviewed choices added to the form. Click Create case when ready.');
-        }, () => version === intakeVersion);
+        showSuggestion(intakeReview, suggestion, context, {
+            isCurrent: () => version === intakeVersion,
+            saveLabel: 'Keep answers in form',
+            onContext: notes => { intakeClarifications = notes; },
+            onSave: async notes => {
+                intakeClarifications = notes;
+                invalidateIntake();
+                notice('Answers kept in this form. Create the case to save them, or request a new suggestion.');
+            },
+            onApply: async (impact, urgency, notes) => {
+                intakeClarifications = notes;
+                form.elements.business_impact.value = impact;
+                form.elements.time_sensitivity.value = urgency;
+                invalidateIntake();
+                notice('Reviewed choices and answers added to the form. Click Create case when ready.');
+            }
+        });
         notice('AI suggestions ready for review. Your form choices are unchanged.');
     } catch (error) { notice(error.message, true); }
     finally { button.disabled = false; button.textContent = 'Suggest triage'; }
 };
 form.onsubmit = async event => {
     event.preventDefault();
+    if (intakeReview.dataset.pendingAnswers === 'true') { notice('Reassess with your answers or keep them in the form before creating the case.', true); return; }
     const button = $('#create-case');
     const data = Object.fromEntries(new FormData(form));
+    data.clarifications = intakeClarifications;
     data.customer_name = data.customer_name.trim();
     data.issue_description = data.issue_description.trim();
     if (!data.customer_name || !data.issue_description) { notice('Enter a customer name and issue description.', true); return; }
@@ -225,6 +344,7 @@ form.onsubmit = async event => {
     try {
         const c = await api('/cases', jsonOptions('POST', data));
         form.reset();
+        intakeClarifications = [];
         invalidateIntake();
         selectedId = c.unique_id;
         notice(`Case created successfully · ${c.priority} ${labels[c.priority]}`);
