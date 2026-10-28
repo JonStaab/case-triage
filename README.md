@@ -10,13 +10,13 @@ Read the [development case study](CASE_STUDY.md) for design decisions, reliabili
 
 The customer supplies the facts; a support agent selects impact and urgency. Customer tier follows company policy. This prototype preserves its original example revenue bands: Low under $5m, Medium $5m–$10m, High over $10m annual revenue.
 
-Priority adds the tier score (1–3), impact score (1–4), and time sensitivity score (1–5): totals 3–4 are P4, 5–7 P3, 8–10 P2, and 11–12 P1. Critical impact with Critical sensitivity always yields P1. AI proposes impact and urgency using the rubric, while the human decides what to apply. The original issue remains visible and the final priority is calculated by the rules above.
+Priority adds the tier score (1–3), impact score (1–4), and time sensitivity score (1–5): totals 3–4 are P4, 5–7 P3, 8–10 P2, and 11–12 P1. Critical business impact always yields P1, regardless of tier or urgency (policy v2). AI proposes impact and urgency using the rubric, while the human decides what to apply. The original issue remains visible and the final priority is calculated by the rules above.
 
 ## AI triage assistant
 
 Use **Suggest triage** on the intake form or an existing case. The assistant returns suggested business impact and time sensitivity, concise reasons, supporting quotes, up to five clarification questions, and a suggested next action. It can leave either rating unanswered when the description lacks evidence. The model does not set customer tier or directly decide final priority. Unanswered ratings show Select a rating, not Low; the intake form also starts with unselected impact/urgency fields.
 
-Review and edit both dropdowns, check the review confirmation, then **Apply reviewed choices**. Intake suggestions populate the form; **Create case** still saves it. Existing-case reviews save only the reviewed impact/urgency and recalculate priority. A stale review receives a conflict response rather than overwriting another update, including changes to saved clarification answers. Editing intake fields invalidates an old suggestion.
+Review both dropdowns, check the confirmation, then **Save reviewed case**. This saves intake and answers in one step. Existing-case reviews save only the reviewed impact/urgency and recalculate priority. A stale review receives a conflict response rather than overwriting another update, including changes to saved clarification answers. Editing intake fields invalidates an old suggestion.
 
 The integration uses OpenAI Structured Outputs (`responses.parse` with a Pydantic schema). Issue descriptions are treated as untrusted data, not instructions. The server rejects supporting quotes that do not occur verbatim in the issue. These checks validate structure and evidence presence, not the correctness of the reasoning. Requests are on demand, with no automatic retries for triage and `store=False`. Your existing OPENAI_API_KEY and OPENAI_MODEL settings work; no new production dependency is needed.
 
@@ -47,7 +47,7 @@ Verified create/list/detail flows in a browser, JSON persistence after a server 
 
 ## Known limits
 
-No authentication, full audit history, or saved AI suggestions/summaries. Customer clarification questions and answers are saved separately from the original description. Humans can revise impact and urgency after AI review; there is no direct priority override. JSON requires one service instance and one worker. A public deployment lets visitors read/create cases and request AI suggestions and summaries using the server's API key. Use fictional data for a public demo.
+No authentication, full audit history, or saved AI suggestions/summaries. Global request/creation caps now protect the shared demo; they are not access controls. Customer clarification questions and answers are saved separately from the original description. Humans can revise impact and urgency after AI review; there is no direct priority override. JSON requires one service instance and one worker. A public deployment lets visitors read/create cases and request AI suggestions and summaries using the server's API key. Use fictional data for a public demo.
 
 ## Windows quick start
 
@@ -88,7 +88,7 @@ After deployment, create a demo case, refresh, open it, generate a summary, and 
 - PATCH /cases/{case_id}/clarifications (save answers without changing ratings; optimistic conflict detection)
 - GET /health
 
-Tier: Low/Medium/High. Impact: Low/Medium/High/Critical. Sensitivity: Low/Medium/High/Urgent/Critical. Priority rules are preserved, including the Critical impact + Critical sensitivity P1 override.
+Tier: Low/Medium/High. Impact: Low/Medium/High/Critical. Sensitivity: Low/Medium/High/Urgent/Critical. Policy v2 assigns P1 to every Critical-impact shutdown. Other score thresholds are retained.
 
 
 
@@ -96,10 +96,22 @@ Tier: Low/Medium/High. Impact: Low/Medium/High/Critical. Sensitivity: Low/Medium
 
 Each AI follow-up question has an optional answer textarea. Leave unknown answers blank. **Reassess with answers** sends the original issue plus reported answers for a fresh assessment; questions themselves are never treated as facts or accepted as supporting evidence. Edited answers disable applying the old assessment until reassessment or an explicit context save.
 
-For intake, **Keep answers in form** retains context for the next suggestion or case creation. Reassessment also retains the answered context in the form. **Apply reviewed choices** fills impact/urgency and retains answers, while **Create case** persists them. Unsaved answer edits cannot be silently omitted by case creation.
+For intake, reassess answered questions, review both ratings, confirm, and choose **Save reviewed case**. This creates the case and saves assessed answers directly. Unsaved answer edits require reassessment before saving the AI review.
 
-For existing cases, **Save answers to case** persists the context without changing the original issue, impact, urgency, or priority. Alternatively, **Apply reviewed choices** saves the reviewed ratings together with assessed answers. Reopening the case shows the saved Q&A, and subsequent AI triage and summary requests include it. Suggestions and next actions remain transient.
+For existing cases, **Save answers to case** persists the context without changing the original issue, impact, urgency, or priority. Alternatively, **Save reviewed assessment** saves the reviewed ratings together with assessed answers. Reopening the case shows the saved Q&A, and subsequent AI triage and summary requests include it. Suggestions and next actions remain transient.
 
 Bounds: at most 20 Q&A entries, 500 characters per question, 1,500 per answer. Customer answers are reported facts, not independently verified data. Conflicting facts should trigger a clarification question.
 
 Eight additional API tests cover legacy loading, Q&A round trips, answer-only save, reviewed save, stale-context conflicts, bounds validation, failed-save rollback, evidence from answers (but not questions), and summaries using saved context. Together with the original ten tests, all **18 tests** pass.
+
+## Workbench update (October 28)
+
+The active queue now supports Open, In progress, and Resolved. Resolve removes a case from the active view; use the Resolved filter to reopen it. Move to Trash asks for confirmation and is recoverable through the Trash filter (restores as Resolved).
+
+AI-supported ratings show Ready for review. Review both ratings, check the confirmation, and choose Save reviewed case to save intake and answers in one action. Required clarification questions stop when both ratings are supported; optional investigation questions do not block saving. Changed answers must be reassessed before saving an AI review. Manual assessment remains available.
+
+See [priority policy v2](PRIORITY_POLICY.md) for the shutdown override, examples, legacy-record behavior and shared-demo limits. demo_controls.py is a required runtime file. No dependency changes are needed. Keep the existing single-worker Render start command and persistent disk.
+
+Validation: `python -m unittest discover -s tests -v` exercises 28 tests, including the complete 60-combination priority matrix, lifecycle, optimistic conflicts, disk failures, AI grounding and demo limits. These deterministic tests do not establish model accuracy. The earlier live evaluation report remains historical and is not a validation of the revised prompt.
+
+Live synthetic workbench evaluation: **4/6** passed. Shutdown/today, recovery versus response deadline, conflicting impact and vague costs passed. Two cosmetic scenarios abstained on “next month” urgency rather than returning expected Low. The report preserves these failures; model accuracy is not established. See evals/workbench-results.json.

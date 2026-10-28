@@ -18,6 +18,8 @@ class TriageTests(unittest.TestCase):
 
     def setUp(self):
         self.m.cases.clear()
+        os.environ['DEMO_MODE']='false'
+        os.environ['OPENAI_API_KEY']='test'
         self.description = 'Checkout stopped for all customers. Restore immediately.'
         self.request = {'issue_description': self.description, 'customer_tier': 'High'}
         self.suggestion = self.m.TriageSuggestion(

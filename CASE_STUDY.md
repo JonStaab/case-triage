@@ -67,3 +67,9 @@ Plain web technologies and JSON kept the first release small and deployable. JSO
 ## Development transparency
 
 Jon Staab supplied the original case-management project and priority logic and directed the product's scope and deployment. AI-assisted tools supported frontend/backend implementation, debugging, test creation, and documentation. This case study describes implemented behavior and observed checks; it does not claim independent manual authorship of every line or production reliability.
+
+## Workbench iteration
+
+Testing exposed a missing lifecycle and a confusing multi-step save flow. The update adds active/resolved/Trash views, reversible removal, one-step reviewed intake saving, and an explanation when a saved legacy priority differs from the revised policy. Complete operational shutdowns now receive P1 regardless of tier. See PRIORITY_POLICY.md for policy and limits.
+
+The AI review separates essential clarification from optional investigation: once both ratings have support, the interface is ready for review. Unknowns remain unknown. Public demo counters limit requests globally and persist beside the case file, using the existing single-worker architecture. This bounds usage without adding authentication or a database. Anonymous access remains a deliberate demo limitation.

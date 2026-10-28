@@ -13,6 +13,8 @@ class ClarificationTests(unittest.TestCase):
 
     def setUp(self):
         self.m.cases.clear()
+        os.environ['DEMO_MODE']='false'
+        os.environ['OPENAI_API_KEY']='test'
         self.m.CASES_FILE=Path(self.folder.name)/'cases.json'
         self.payload=dict(customer_name='Fictional Supplies',issue_description='Raw material costs are rising.',
             customer_tier='Low', business_impact='Low',time_sensitivity='Low')
@@ -40,7 +42,8 @@ class ClarificationTests(unittest.TestCase):
         result=self.client.patch('/cases/'+case['unique_id']+'/clarifications',json=self.patch_data(case))
         self.assertEqual(result.status_code,200)
         self.assertEqual(result.json()['clarifications'],[self.note])
-        for key,value in case.items():self.assertEqual(result.json()[key],value)
+        for key,value in case.items():
+            if key != 'revision': self.assertEqual(result.json()[key],value)
         self.assertEqual(self.m.load_cases()[0].clarifications,[self.note])
         self.assertEqual(self.client.patch('/cases/'+case['unique_id']+'/clarifications',json=self.patch_data(case)).status_code,409)
 

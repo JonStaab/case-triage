@@ -5,6 +5,8 @@ import json
 from fastapi import FastAPI, HTTPException
 import os
 import tempfile
+import uuid
+from demo_controls import demo_enabled, limits, consume, ai_request
 from pathlib import Path
 from threading import RLock
 from typing import Literal
@@ -51,7 +53,11 @@ def case_to_dict(case):
         "customer_tier": case.customer_tier,
         "business_impact": case.business_impact,
         "time_sensitivity": case.time_sensitivity,
-        "priority": case.priority
+        "priority": case.priority,
+        "status": case.status,
+        "revision": case.revision,
+        "created_at": case.created_at,
+        "deleted_at": case.deleted_at
     }
     if case.clarifications:
         data["clarifications"] = case.clarifications
@@ -99,6 +105,10 @@ def load_cases():
             saved_case["time_sensitivity"],
             saved_case["priority"],
             saved_case.get("clarifications", []),
+            saved_case.get("status", "Open"),
+            saved_case.get("revision", 0),
+            saved_case.get("created_at", ""),
+            saved_case.get("deleted_at"),
     )
         cases.append(new_case)
 
@@ -145,7 +155,8 @@ def calculate_priority(time_sensitivity, business_impact, customer_tier):
         priority = "P2"
     elif total >= 11 and total <=12:
         priority = "P1"
-    if b_impact == 4 and t_impact == 5:
+    # Policy v2: an operational shutdown is always P1, independent of tier.
+    if b_impact == 4:
         priority = "P1"
 
     return priority
@@ -167,7 +178,7 @@ class CaseCreate(BaseModel):
 
 
 class Case:
-    def __init__(self, unique_id, customer_name, issue_description, customer_tier, business_impact, time_sensitivity, priority, clarifications=None):
+    def __init__(self, unique_id, customer_name, issue_description, customer_tier, business_impact, time_sensitivity, priority, clarifications=None, status="Open", revision=0, created_at="", deleted_at=None):
         self.unique_id = unique_id
         self.customer_name = customer_name
         self.issue_description = issue_description
@@ -176,6 +187,10 @@ class Case:
         self.time_sensitivity = time_sensitivity
         self.priority = priority
         self.clarifications = clarifications or []
+        self.status = status
+        self.revision = revision
+        self.created_at = created_at
+        self.deleted_at = deleted_at
 
 def create_case(customer_name, issue_description, customer_tier,
                 business_impact, time_sensitivity, cases):
@@ -188,8 +203,9 @@ def create_case(customer_name, issue_description, customer_tier,
 
     priority = calculate_priority(time_sensitivity,business_impact, customer_tier)
 
-    unique_id = f"{now}{case_number}"
+    unique_id = f"{now}{uuid.uuid4().hex[:10]}"
     new_case = Case(unique_id, customer_name, issue_description, customer_tier, business_impact, time_sensitivity, priority)
+    new_case.created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     return new_case
 
 cases = load_cases()
@@ -203,28 +219,69 @@ def summarize_case(issue_description):
         input=f"Summarize this customer support issue in one concise sentence: {issue_description}"
     )
     return response.output_text
+@app.get("/demo-config")
+def demo_config():
+    return {"demo_mode": demo_enabled(), "limits": limits(), "priority_policy": "v2"}
+
+
+def priority_explanation(case):
+    current = calculate_priority(case.time_sensitivity, case.business_impact, case.customer_tier)
+    if case.priority != current:
+        return f"Saved under an earlier policy. Current policy would assign {current}; review and save to update."
+    if case.business_impact == "Critical":
+        return "P1: operations stopped. Customer tier cannot lower a shutdown's priority."
+    return f"{case.priority}: combined impact ({case.business_impact}), urgency ({case.time_sensitivity}), and tier ({case.customer_tier}) under policy v2."
+
+
+def case_response(case):
+    return {**case_to_dict(case), "priority_explanation": priority_explanation(case)}
+
+
+def check_revision(case, expected):
+    if expected is not None and case.revision != expected:
+        raise HTTPException(409, "This case changed. Reopen it before saving.")
+
+
+def ensure_editable(case):
+    if case.deleted_at:
+        raise HTTPException(409, "Restore this case from Trash before editing.")
+    if case.status == "Resolved":
+        raise HTTPException(409, "Reopen this case before changing its assessment.")
+
+
+def retain_metadata(updated, original):
+    updated.status = original.status
+    updated.revision = original.revision + 1
+    updated.created_at = original.created_at
+    updated.deleted_at = original.deleted_at
+
+
 @app.get("/cases")
-def get_cases():
-
-    case_data = []
-
-
-    for case in cases:
-        case_data.append(case_to_dict(case))
-
-    return case_data
+def get_cases(view: Literal["all", "active", "resolved", "deleted"] = "all"):
+    with case_lock:
+        selected = [case for case in cases if
+            (case.deleted_at is not None if view == "deleted" else case.deleted_at is None)
+            and (view != "active" or case.status != "Resolved")
+            and (view != "resolved" or case.status == "Resolved")]
+        return [case_response(case) for case in selected]
 
 @app.get("/cases/{case_id}")
 def get_case(case_id: str):
     for case in cases:
         if case_id == case.unique_id:
-            return case_to_dict(case)
+            return case_response(case)
     raise HTTPException(status_code=404, detail="Case not found")
 
 
 @app.post("/cases")
 def post_case(case_data: CaseCreate):
     with case_lock:
+        if demo_enabled():
+            if len(cases) >= limits()["stored_cases"]:
+                raise HTTPException(429, "Shared demo storage is full, including Trash. The demo owner must reset its data.")
+            if sum(not c.deleted_at and c.status != "Resolved" for c in cases) >= limits()["active_cases"]:
+                raise HTTPException(429, "The active queue is full. Resolve an existing demo case first.")
+        consume("create", CASES_FILE)
         new_case = create_case(
             case_data.customer_name, case_data.issue_description, case_data.customer_tier,
             case_data.business_impact, case_data.time_sensitivity, cases
@@ -235,14 +292,17 @@ def post_case(case_data: CaseCreate):
         except OSError:
             raise HTTPException(status_code=503, detail="Case could not be saved. Please try again.")
         cases.append(new_case)
-        return case_to_dict(new_case)
+        return case_response(new_case)
 
 @app.post("/cases/{case_id}/summary")
 def summarize_existing_case(case_id: str):
     for case in cases:
-        if case.unique_id == case_id:
+        if case.unique_id == case_id and not case.deleted_at:
+            if not os.environ.get("OPENAI_API_KEY"):
+                raise HTTPException(503, "AI summaries are unavailable. Set OPENAI_API_KEY on the server.")
             try:
-                summary = summarize_case(triage_context(case.issue_description, case.clarifications))
+                with ai_request(CASES_FILE):
+                    summary = summarize_case(triage_context(case.issue_description, case.clarifications))
             except OpenAIError:
                 raise HTTPException(status_code=502, detail="The AI service could not generate a summary. Please try again later.")
             return {
@@ -274,7 +334,7 @@ class TriageSuggestion(BaseModel):
     time_sensitivity: Literal["Low", "Medium", "High", "Urgent", "Critical"] | None
     urgency_reason: str = Field(min_length=1, max_length=800)
     urgency_evidence: list[str] = Field(max_length=3)
-    missing_information: list[str] = Field(max_length=5)
+    missing_information: list[str] = Field(max_length=3)
     next_action: str = Field(min_length=1, max_length=800)
 
 
@@ -300,8 +360,18 @@ null for time_sensitivity and ask when resolution is required. An explicit ongoi
 outage requiring immediate restoration supports Critical urgency.
 Include a concise reason for each rating or abstention. Evidence must be short,
 exact, verbatim quotations from the issue text, without quotation marks added.
+Separate the support response deadline from the total recovery duration. A six-month
+rebuild does not mean the customer can wait six months for support. Use Urgent for
+an initial response or planning meeting needed today; do not infer Critical urgency
+solely because recovery is long. An extinguished fire without injuries is not itself
+an active emergency. Do not provide emergency response instructions.
+Once both impact and urgency are supported, stop the required interview. Return an
+empty missing_information list and one next action. Do not ask for serial numbers,
+vendors, site/account identifiers, or investigative details to postpone initial triage.
+If facts or answers conflict about impact or deadlines, leave the affected rating
+null and ask a targeted clarification. Do not silently select the more severe answer.
 Every non-null rating needs at least one supporting evidence quote. For null use
-an empty evidence list. Ask up to five specific questions for missing information;
+an empty evidence list. Ask at most three essential questions needed to determine the missing ratings;
 use an empty list if nothing material is missing. Recommend one practical next
 action for the agent, not a claim that you executed it. Keep responses concise.
 """
@@ -337,15 +407,26 @@ def suggest_triage(issue_description, clarifications=None):
 
 @app.post("/triage")
 def triage_case(data: TriageRequest):
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise HTTPException(503, "AI triage is unavailable. Set OPENAI_API_KEY on the server.")
     notes = [item.model_dump() for item in data.clarifications]
-    suggestion = suggest_triage(data.issue_description, notes) if notes else suggest_triage(data.issue_description)
+    with ai_request(CASES_FILE):
+        suggestion = suggest_triage(data.issue_description, notes) if notes else suggest_triage(data.issue_description)
     priority = None
-    if suggestion.business_impact and suggestion.time_sensitivity:
+    ready = bool(suggestion.business_impact and suggestion.time_sensitivity)
+    if ready:
         priority = calculate_priority(suggestion.time_sensitivity, suggestion.business_impact, data.customer_tier)
-    return {**suggestion.model_dump(), "suggested_priority": priority}
+    result = suggestion.model_dump()
+    # A supported assessment can be saved immediately; extra investigation is optional.
+    result["investigation_questions"] = result["missing_information"][:2] if ready else []
+    result["missing_information"] = [] if ready else result["missing_information"][:3]
+    return {**result, "suggested_priority": priority,
+            "assessment_state": "ready_for_review" if ready else "needs_clarification"}
+
 
 
 class TriageReview(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=0)
     model_config = ConfigDict(extra="forbid")
     business_impact: Literal["Low", "Medium", "High", "Critical"]
     time_sensitivity: Literal["Low", "Medium", "High", "Urgent", "Critical"]
@@ -362,6 +443,8 @@ def save_reviewed_triage(case_id: str, review: TriageReview):
         for index, case in enumerate(cases):
             if case.unique_id != case_id:
                 continue
+            ensure_editable(case)
+            check_revision(case, review.expected_revision)
             if (case.business_impact != review.expected_business_impact
                     or case.time_sensitivity != review.expected_time_sensitivity
                     or case.issue_description != review.expected_issue_description
@@ -371,6 +454,7 @@ def save_reviewed_triage(case_id: str, review: TriageReview):
             updated = Case(case.unique_id, case.customer_name, case.issue_description,
                            case.customer_tier, review.business_impact, review.time_sensitivity, priority,
                            case.clarifications if review.clarifications is None else [item.model_dump() for item in review.clarifications])
+            retain_metadata(updated, case)
             updated_cases = cases.copy()
             updated_cases[index] = updated
             try:
@@ -378,11 +462,12 @@ def save_reviewed_triage(case_id: str, review: TriageReview):
             except OSError:
                 raise HTTPException(status_code=503, detail="Reviewed triage could not be saved. Please try again.")
             cases[index] = updated
-            return case_to_dict(updated)
+            return case_response(updated)
     raise HTTPException(status_code=404, detail="Case not found")
 
 
 class ClarificationSave(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=0)
     model_config = ConfigDict(extra="forbid")
     clarifications: list[Clarification] = Field(max_length=20)
     expected_clarifications: list[Clarification] = Field(default_factory=list, max_length=20)
@@ -395,12 +480,15 @@ def save_clarifications(case_id: str, data: ClarificationSave):
         for index, case in enumerate(cases):
             if case.unique_id != case_id:
                 continue
+            ensure_editable(case)
+            check_revision(case, data.expected_revision)
             if (case.issue_description != data.expected_issue_description
                     or case.clarifications != [item.model_dump() for item in data.expected_clarifications]):
                 raise HTTPException(status_code=409, detail="This case changed. Reopen it before saving answers.")
             updated = Case(case.unique_id, case.customer_name, case.issue_description,
                            case.customer_tier, case.business_impact, case.time_sensitivity,
                            case.priority, [item.model_dump() for item in data.clarifications])
+            retain_metadata(updated, case)
             updated_cases = cases.copy()
             updated_cases[index] = updated
             try:
@@ -408,8 +496,91 @@ def save_clarifications(case_id: str, data: ClarificationSave):
             except OSError:
                 raise HTTPException(status_code=503, detail="Answers could not be saved. Please try again.")
             cases[index] = updated
-            return case_to_dict(updated)
+            return case_response(updated)
     raise HTTPException(status_code=404, detail="Case not found")
+
+
+class StatusChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["Open", "In progress", "Resolved"]
+    expected_revision: int = Field(ge=0)
+
+
+@app.patch("/cases/{case_id}/status")
+def change_status(case_id: str, data: StatusChange):
+    with case_lock:
+        for index, case in enumerate(cases):
+            if case.unique_id != case_id:
+                continue
+            check_revision(case, data.expected_revision)
+            if case.deleted_at:
+                raise HTTPException(409, "Restore this case before changing its status.")
+            if data.status != "Resolved" and case.status == "Resolved" and demo_enabled():
+                if sum(not c.deleted_at and c.status != "Resolved" for c in cases) >= limits()["active_cases"]:
+                    raise HTTPException(429, "Active queue is full. Resolve another case before reopening this one.")
+            updated = Case(**case_to_dict(case))
+            updated.status = data.status
+            updated.revision += 1
+            return persist_case_change(index, updated)
+    raise HTTPException(404, "Case not found")
+
+
+def persist_case_change(index, updated):
+    updated_cases = cases.copy()
+    updated_cases[index] = updated
+    try:
+        save_cases(updated_cases)
+    except OSError:
+        raise HTTPException(503, "Case change could not be saved. Please try again.")
+    cases[index] = updated
+    return case_response(updated)
+
+
+class DeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmation: str
+    expected_revision: int = Field(ge=0)
+
+
+@app.delete("/cases/{case_id}")
+def delete_demo_case(case_id: str, data: DeleteRequest):
+    with case_lock:
+        for index, case in enumerate(cases):
+            if case.unique_id != case_id:
+                continue
+            check_revision(case, data.expected_revision)
+            if data.confirmation != case_id:
+                raise HTTPException(422, "Confirm deletion using the exact case ID.")
+            if case.deleted_at:
+                raise HTTPException(409, "This case is already in Trash.")
+            updated = Case(**case_to_dict(case))
+            updated.deleted_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            updated.revision += 1
+            return persist_case_change(index, updated)
+    raise HTTPException(404, "Case not found")
+
+
+class RestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=0)
+
+
+@app.post("/cases/{case_id}/restore")
+def restore_case(case_id: str, data: RestoreRequest):
+    with case_lock:
+        for index, case in enumerate(cases):
+            if case.unique_id != case_id:
+                continue
+            check_revision(case, data.expected_revision)
+            if not case.deleted_at:
+                raise HTTPException(409, "This case is not in Trash.")
+            updated = Case(**case_to_dict(case))
+            updated.deleted_at = None
+            # Restore to Resolved to avoid unexpectedly adding work to an active queue.
+            updated.status = "Resolved"
+            updated.revision += 1
+            return persist_case_change(index, updated)
+    raise HTTPException(404, "Case not found")
 
 
 #CASE MANAGEMENT SYSTEM
