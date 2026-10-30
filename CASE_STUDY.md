@@ -89,3 +89,14 @@ There is no employee KPI dashboard yet. The next measurement design will focus o
 A further walkthrough showed that requiring a deadline for every ASAP action added entry work without establishing a useful expectation. The revision makes immediate-action dates optional and distinguishes follow-up checkpoints from actual client/vendor commitments. Recorded-workflow signals help a reviewer find unrecorded acknowledgments, waiting without a checkpoint and overdue dated commitments. Old dates and unknown history are preserved honestly.
 
 The elapsed clock uses known case creation, not inbox arrival; response events remain manually reported. Closed cases pause attention signals. Completion does not imply that a customer was contacted. These controls support follow-through without creating an unvalidated PM performance ranking. The current validation is 53 distinct API tests plus a local browser check of undated ASAP saving, responsibility defaults, attention flags and persistence after reload. Live rollout acceptance and Gmail authorization remain separate next steps.
+
+
+## October 30, 2026 — Director overview and PM workspace
+
+Added three views over the same case records: Team queue, PM workspace, and Director overview. The PM name filter matches case ownership or open action responsibility (case-insensitive); entering a name also pre-fills the reported actor for subsequent activities. This is a demo filter, not authentication or role-based authorization.
+
+The director overview shows active case count, unassigned cases, cases without an open next action, overdue commitments, waiting without a follow-up checkpoint, and unrecorded/unknown acknowledgment history. Exception links open the existing case detail. Current workload is grouped by current owner; past response performance is not attributed to that owner.
+
+Follow-through metrics cover retained cases excluding Trash, including resolved cases for historical commitments. Only follow-up/client-update commitments due by the viewing time enter their respective denominators. A completion is on time only when its server timestamp is on or before the due date. Future and undated ASAP actions are excluded. Median first acknowledgment uses the existing explicit human-acknowledgment interval from case creation; unknown/invalid intervals are excluded and sample counts are displayed. No SLA, arbitrary passing score, or employee ranking is invented. No date-range reporting or owner-at-event attribution is implemented yet.
+
+Validation: Node fixture assertions cover empty data, active/resolved/Trash scopes, due-only denominators, completion cutoff, unknown history, PM matching, and priority order. JavaScript syntax checks passed. Browser checks verified director cards and PM filtering against isolated fictional records. No new AI requests, hosting resources, production dependency, or backend schema changes were introduced. Development hours were not tracked.

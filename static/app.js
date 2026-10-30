@@ -203,7 +203,10 @@ function showSuggestion(container, suggestion, context, callbacks) {
 }
 async function loadCases() {
     const allCases = await api('/cases?view=' + queueView);
-    const cases = attentionOnly ? allCases.filter(c => c.attention?.active && c.attention.signals.length) : allCases;
+    const saved = queueView === 'all' ? allCases : await api('/cases?view=all');
+    renderOversight(saved);
+    let cases = attentionOnly ? allCases.filter(c => c.attention?.active && c.attention.signals.length) : allCases;
+    if(workspaceMode==='pm')cases=cases.filter(c=>matchesPerson(c,workspacePerson));
     const container = $('#cases');
     container.replaceChildren();
     $('#count').textContent = `(${cases.length})`;
@@ -421,3 +424,6 @@ function reviewEmailDraft(draft) {
 }
 
 $('#attention-only').onchange=async event=>{attentionOnly=event.target.checked;try{await loadCases();}catch(error){notice(error.message,true);}};
+
+$('#workspace-mode').onchange=async event=>{workspaceMode=event.target.value;selectedId=null;$('#detail').replaceChildren(el('h2','Case details'),el('p','Select a case.'));try{await loadCases();}catch(error){notice(error.message,true);}};
+$('#pm-person').onchange=async event=>{workspacePerson=event.target.value;workflowActor=workspacePerson;selectedId=null;$('#detail').replaceChildren(el('h2','Case details'),el('p','Select a case.'));try{await loadCases();}catch(error){notice(error.message,true);}};

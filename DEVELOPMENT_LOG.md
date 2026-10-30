@@ -53,3 +53,14 @@ Validation: 53 distinct API tests pass; the final suite execution took 10.322 se
 Small usability changes: actor name is remembered only in page memory (not authenticated identity); action responsibility defaults to the case owner or reported actor. Timeline entries use readable descriptions rather than raw JSON. This avoids repeated typing without pretending that public-demo names are verified.
 
 Timeline display polish: readable event names and descriptions replace raw JSON. Each entry shows the activity time and actor once; a separate 'Logged later' timestamp appears when recording differs by at least one minute. Both original timestamps remain stored. JavaScript syntax check passed.
+
+
+## October 30, 2026 — Director overview and PM workspace
+
+Added three views over the same case records: Team queue, PM workspace, and Director overview. The PM name filter matches case ownership or open action responsibility (case-insensitive); entering a name also pre-fills the reported actor for subsequent activities. This is a demo filter, not authentication or role-based authorization.
+
+The director overview shows active case count, unassigned cases, cases without an open next action, overdue commitments, waiting without a follow-up checkpoint, and unrecorded/unknown acknowledgment history. Exception links open the existing case detail. Current workload is grouped by current owner; past response performance is not attributed to that owner.
+
+Follow-through metrics cover retained cases excluding Trash, including resolved cases for historical commitments. Only follow-up/client-update commitments due by the viewing time enter their respective denominators. A completion is on time only when its server timestamp is on or before the due date. Future and undated ASAP actions are excluded. Median first acknowledgment uses the existing explicit human-acknowledgment interval from case creation; unknown/invalid intervals are excluded and sample counts are displayed. No SLA, arbitrary passing score, or employee ranking is invented. No date-range reporting or owner-at-event attribution is implemented yet.
+
+Validation: Node fixture assertions cover empty data, active/resolved/Trash scopes, due-only denominators, completion cutoff, unknown history, PM matching, and priority order. JavaScript syntax checks passed. Browser checks verified director cards and PM filtering against isolated fictional records. No new AI requests, hosting resources, production dependency, or backend schema changes were introduced. Development hours were not tracked.
