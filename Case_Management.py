@@ -7,6 +7,10 @@ import os
 import tempfile
 import uuid
 from demo_controls import demo_enabled, limits, consume, ai_request
+import email_intake
+import case_workflow
+import copy
+import sys
 from pathlib import Path
 from threading import RLock
 from typing import Literal
@@ -19,6 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CASES_FILE = Path(os.environ.get("CASES_FILE", str(BASE_DIR / "cases.json")))
 case_lock = RLock()
 app = FastAPI(title="Case Triage")
+email_intake.install(app, lambda: cases)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 @app.get("/", include_in_schema=False)
@@ -57,7 +62,10 @@ def case_to_dict(case):
         "status": case.status,
         "revision": case.revision,
         "created_at": case.created_at,
-        "deleted_at": case.deleted_at
+        "deleted_at": case.deleted_at,
+        "source_email_draft_id": case.source_email_draft_id,
+        "source_email_revision": case.source_email_revision,
+        "workflow": case.workflow
     }
     if case.clarifications:
         data["clarifications"] = case.clarifications
@@ -109,6 +117,9 @@ def load_cases():
             saved_case.get("revision", 0),
             saved_case.get("created_at", ""),
             saved_case.get("deleted_at"),
+            saved_case.get("source_email_draft_id"),
+            saved_case.get("source_email_revision"),
+            saved_case.get("workflow"),
     )
         cases.append(new_case)
 
@@ -168,6 +179,8 @@ class Clarification(BaseModel):
 
 
 class CaseCreate(BaseModel):
+    source_email_draft_id: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{1,64}$")
+    source_email_revision: int | None = Field(default=None, ge=1)
     model_config = ConfigDict(str_strip_whitespace=True)
     customer_name: str = Field(min_length=1, max_length=200)
     issue_description: str = Field(min_length=1, max_length=10000)
@@ -178,7 +191,7 @@ class CaseCreate(BaseModel):
 
 
 class Case:
-    def __init__(self, unique_id, customer_name, issue_description, customer_tier, business_impact, time_sensitivity, priority, clarifications=None, status="Open", revision=0, created_at="", deleted_at=None):
+    def __init__(self, unique_id, customer_name, issue_description, customer_tier, business_impact, time_sensitivity, priority, clarifications=None, status="Open", revision=0, created_at="", deleted_at=None, source_email_draft_id=None, source_email_revision=None, workflow=None):
         self.unique_id = unique_id
         self.customer_name = customer_name
         self.issue_description = issue_description
@@ -191,6 +204,9 @@ class Case:
         self.revision = revision
         self.created_at = created_at
         self.deleted_at = deleted_at
+        self.source_email_draft_id = source_email_draft_id
+        self.source_email_revision = source_email_revision
+        self.workflow = copy.deepcopy(workflow) if workflow else {"owner": "", "actions": [], "events": []}
 
 def create_case(customer_name, issue_description, customer_tier,
                 business_impact, time_sensitivity, cases):
@@ -206,6 +222,7 @@ def create_case(customer_name, issue_description, customer_tier,
     unique_id = f"{now}{uuid.uuid4().hex[:10]}"
     new_case = Case(unique_id, customer_name, issue_description, customer_tier, business_impact, time_sensitivity, priority)
     new_case.created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    case_workflow.record(new_case,"case_created","Case created; no historical response time inferred.")
     return new_case
 
 cases = load_cases()
@@ -221,7 +238,7 @@ def summarize_case(issue_description):
     return response.output_text
 @app.get("/demo-config")
 def demo_config():
-    return {"demo_mode": demo_enabled(), "limits": limits(), "priority_policy": "v2"}
+    return {"demo_mode": demo_enabled(), "limits": limits(), "priority_policy": "v2", "email_intake": email_intake.enabled()}
 
 
 def priority_explanation(case):
@@ -254,6 +271,10 @@ def retain_metadata(updated, original):
     updated.revision = original.revision + 1
     updated.created_at = original.created_at
     updated.deleted_at = original.deleted_at
+    updated.source_email_draft_id = original.source_email_draft_id
+    updated.source_email_revision = original.source_email_revision
+    updated.workflow = copy.deepcopy(original.workflow)
+    case_workflow.record(updated,"assessment_or_context_saved", {"previous_impact":original.business_impact,"impact":updated.business_impact,"previous_urgency":original.time_sensitivity,"urgency":updated.time_sensitivity})
 
 
 @app.get("/cases")
@@ -276,6 +297,15 @@ def get_case(case_id: str):
 @app.post("/cases")
 def post_case(case_data: CaseCreate):
     with case_lock:
+        if case_data.source_email_draft_id:
+            draft, description = email_intake.draft_for_review(case_data.source_email_draft_id, case_data.source_email_revision)
+            existing = next((c for c in cases if c.source_email_draft_id == draft['id']), None)
+            if existing:
+                raise HTTPException(409, 'This email thread already has a case. Open it from Email drafts; no duplicate was created.')
+            if case_data.issue_description != description:
+                raise HTTPException(409, 'Email source changed. Reload its draft before saving.')
+        elif case_data.source_email_revision is not None:
+            raise HTTPException(422, 'Email revision requires a source draft.')
         if demo_enabled():
             if len(cases) >= limits()["stored_cases"]:
                 raise HTTPException(429, "Shared demo storage is full, including Trash. The demo owner must reset its data.")
@@ -287,6 +317,8 @@ def post_case(case_data: CaseCreate):
             case_data.business_impact, case_data.time_sensitivity, cases
         )
         new_case.clarifications = [item.model_dump() for item in case_data.clarifications]
+        new_case.source_email_draft_id = case_data.source_email_draft_id
+        new_case.source_email_revision = case_data.source_email_revision
         try:
             save_cases(cases + [new_case])
         except OSError:
@@ -526,6 +558,9 @@ def change_status(case_id: str, data: StatusChange):
 
 
 def persist_case_change(index, updated):
+    original = cases[index]
+    if original.status != updated.status or original.deleted_at != updated.deleted_at:
+        case_workflow.record(updated, "case_status_changed", {"previous":original.status,"status":updated.status,"in_trash":bool(updated.deleted_at)})
     updated_cases = cases.copy()
     updated_cases[index] = updated
     try:
@@ -582,6 +617,8 @@ def restore_case(case_id: str, data: RestoreRequest):
             return persist_case_change(index, updated)
     raise HTTPException(404, "Case not found")
 
+
+case_workflow.install(app, sys.modules[__name__])
 
 #CASE MANAGEMENT SYSTEM
 

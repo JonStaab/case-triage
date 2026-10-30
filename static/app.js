@@ -3,6 +3,7 @@ let selectedId = null;
 let queueView = 'active';
 let intakeVersion = 0;
 let intakeClarifications = [];
+let intakeEmail = null;
 const labels = {P1: 'Critical', P2: 'High', P3: 'Medium', P4: 'Low'};
 const impacts = ['Low', 'Medium', 'High', 'Critical'];
 const urgencies = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
@@ -249,6 +250,7 @@ async function openCase(id) {
             });
         }
         panel.append(el('p', 'Status: '+(c.deleted_at ? 'Trash' : c.status)), controls);
+        renderWorkflow(panel, c);
         const facts = el('dl');
         [['Customer tier', c.customer_tier], ['Business impact', c.business_impact], ['Time sensitivity', c.time_sensitivity]]
             .forEach(([key, value]) => facts.append(el('dt', key), el('dd', value)));
@@ -362,6 +364,7 @@ async function saveIntake() {
     const button = $('#create-case');
     const data = Object.fromEntries(new FormData(form));
     data.clarifications = intakeClarifications;
+    if(intakeEmail){ data.source_email_draft_id=intakeEmail.id;data.source_email_revision=intakeEmail.revision; }
     data.customer_name = data.customer_name.trim();
     data.issue_description = data.issue_description.trim();
     if (!data.customer_name || !data.issue_description) { notice('Enter a customer name and issue description.', true); return; }
@@ -369,6 +372,7 @@ async function saveIntake() {
     try {
         const c = await api('/cases', jsonOptions('POST', data));
         form.reset();
+        intakeEmail = null; form.elements.issue_description.readOnly=false; $('#email-source-note')?.remove();
         intakeClarifications = [];
         invalidateIntake();
         selectedId = c.unique_id;
@@ -396,3 +400,19 @@ const manualAssessment = el('details');
 manualAssessment.append(el('summary','Manual assessment — save without AI'));
 manualAssessment.append(form.elements.business_impact.closest('label'),form.elements.time_sensitivity.closest('label'),$('#create-case'));
 form.append(manualAssessment);
+
+function reviewEmailDraft(draft) {
+    const text=draft.messages.map(m=>`Subject: ${m.subject}\nFrom: ${m.sender}\n${m.body}`).join('\n\n');
+    if(text.length>10000){notice('This thread exceeds the case size limit. Review it manually; no text was truncated.',true);return;}
+    $('#email-source-note')?.remove();
+    const note=el('div');note.id='email-source-note';note.append(el('p','Email source is preserved. Customer tier is a manual policy choice.'));
+    const clear=el('button','Start a blank case','secondary');clear.type='button';clear.onclick=()=>{intakeEmail=null;intakeClarifications=[];form.reset();form.elements.issue_description.readOnly=false;note.remove();invalidateIntake();};note.append(clear);form.prepend(note);
+    form.elements.issue_description.readOnly=true;
+    intakeEmail = {id:draft.id,revision:draft.revision};
+    intakeClarifications=[];
+    form.elements.customer_name.value=draft.messages[0].sender.slice(0,200);
+    form.elements.issue_description.value=draft.messages.map(m=>`Subject: ${m.subject}\nFrom: ${m.sender}\n${m.body}`).join('\n\n');
+    form.elements.business_impact.value='';form.elements.time_sensitivity.value='';
+    invalidateIntake(); $('#create').scrollIntoView({behavior:'smooth'});
+    notice('Email draft loaded. Review the source and customer tier, then request AI triage or enter manual ratings.');
+}

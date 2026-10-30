@@ -115,3 +115,19 @@ See [priority policy v2](PRIORITY_POLICY.md) for the shutdown override, examples
 Validation: `python -m unittest discover -s tests -v` exercises 28 tests, including the complete 60-combination priority matrix, lifecycle, optimistic conflicts, disk failures, AI grounding and demo limits. These deterministic tests do not establish model accuracy. The earlier live evaluation report remains historical and is not a validation of the revised prompt.
 
 Live synthetic workbench evaluation: **4/6** passed. Shutdown/today, recovery versus response deadline, conflicting impact and vague costs passed. Two cosmetic scenarios abstained on “next month” urgency rather than returning expected Low. The report preserves these failures; model accuracy is not established. See evals/workbench-results.json.
+
+## Optional private Gmail pilot
+
+The public demo remains unchanged unless email intake is explicitly enabled. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for the separate private service, test Gmail account, Google authorization and labeled-message polling. Original email text is stored as private drafts; the manager creates a reviewed case. Replies group by Gmail thread and repeated deliveries cannot create duplicate cases. No automatic AI calls, outgoing replies, scheduled digests or phone alerts are enabled in this release.
+
+Forty API tests pass, including private-access boundaries, email parsing, duplicate delivery, stale source checks, source linkage/persistence and existing triage/lifecycle checks. Connector logic is also checked offline with mocked Gmail/HTTP services. A real Google authorization and timed delivery test remain pending; no real inbox has been connected by this implementation. No new Python dependency is required.
+
+## Case ownership and activity timeline — October 30
+
+The case detail view now includes an owner, assigned actions (responsible person, waiting-on party and due date), completion outcomes and a chronological activity history. Record first human acknowledgment, information requests, follow-ups, information received, client updates and resolution notes independently. This supports future responsiveness KPIs without equating vendor recovery time with PM performance.
+
+API additions: PATCH /cases/{id}/owner, POST /cases/{id}/actions, POST /cases/{id}/actions/{action_id}/complete, POST /cases/{id}/activities. Requests require expected_revision and a reported actor name. Existing source links and metadata survive changes. Legacy cases acquire an empty workflow with no invented historical events. The existing single-process atomic JSON persistence remains in use.
+
+Validation: 47 API tests pass locally; seven new workflow tests cover ownership, actions, timestamps, stale revisions, legacy history and failure rollback. No new AI accuracy claim is made. KPIs and live Gmail authorization remain pending. The updated frontend needs deployment and browser acceptance before sharing the new feature as live.
+
+See [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md) for dated milestones, measured test execution time, limitations, acceptance steps and the planned KPI definitions. Reported names and manual activity times are not verified identities or proof of external communication. Do not use public-demo data to evaluate employees.

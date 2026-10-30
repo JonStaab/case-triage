@@ -73,3 +73,13 @@ Jon Staab supplied the original case-management project and priority logic and d
 Testing exposed a missing lifecycle and a confusing multi-step save flow. The update adds active/resolved/Trash views, reversible removal, one-step reviewed intake saving, and an explanation when a saved legacy priority differs from the revised policy. Complete operational shutdowns now receive P1 regardless of tier. See PRIORITY_POLICY.md for policy and limits.
 
 The AI review separates essential clarification from optional investigation: once both ratings have support, the interface is ready for review. Unknowns remain unknown. Public demo counters limit requests globally and persist beside the case file, using the existing single-worker architecture. This bounds usage without adding authentication or a database. Anonymous access remains a deliberate demo limitation.
+
+## October 30: measure follow-through before measuring outcomes
+
+A user walkthrough exposed a product distinction: fast resolution and good project management are not the same outcome. A PM can promptly acknowledge an issue, pursue missing vendor information and update a client even while a repair or replacement remains outside the PM's control.
+
+The next iteration records those steps explicitly. Cases now have an owner; actions have a responsible party, waiting-on contact, due time and completion outcome. The timeline separately records human acknowledgment, information requests, follow-up, information received and client updates. System transitions and manually reported actions carry distinct sources. Each event retains reported occurrence time and server recording time; old cases are not given invented past activity.
+
+This foundation was built before connecting a live inbox so emails can later supply source events to a consistent record. The local API suite now passes 47 tests. Seven workflow tests cover persistence, timestamps, legacy records, conflicts and failed-write rollback. Full details and a dated release history are in DEVELOPMENT_LOG.md. Active development hours were not tracked, and test-suite execution time must not be presented as development duration.
+
+There is no employee KPI dashboard yet. The next measurement design will focus on time to acknowledgment, pursuit of missing information and updates to the client, with explicit handling for unknown timestamps and external waiting time. Public demo activity and reported actor names are not verified evidence of employee performance. This remains a prototype, not a tamper-proof audit system.

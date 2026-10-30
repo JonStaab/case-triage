@@ -43,7 +43,7 @@ class ClarificationTests(unittest.TestCase):
         self.assertEqual(result.status_code,200)
         self.assertEqual(result.json()['clarifications'],[self.note])
         for key,value in case.items():
-            if key != 'revision': self.assertEqual(result.json()[key],value)
+            if key not in ('revision','workflow'): self.assertEqual(result.json()[key],value)
         self.assertEqual(self.m.load_cases()[0].clarifications,[self.note])
         self.assertEqual(self.client.patch('/cases/'+case['unique_id']+'/clarifications',json=self.patch_data(case)).status_code,409)
 

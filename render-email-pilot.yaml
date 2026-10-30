@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: case-triage-email-pilot
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn Case_Management:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.9
+      - key: PRIVATE_MODE
+        value: "true"
+      - key: EMAIL_INTAKE_ENABLED
+        value: "true"
+      - key: DEMO_MODE
+        value: "false"
+      - key: CASES_FILE
+        value: /var/data/cases.json
+      - key: EMAIL_DRAFTS_FILE
+        value: /var/data/email-drafts.json
+      - key: PRIVATE_USERNAME
+        value: manager
+      - key: PRIVATE_PASSWORD
+        sync: false
+      - key: EMAIL_WEBHOOK_SECRET
+        sync: false
+      - key: GMAIL_INTAKE_MAILBOX
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+    disk:
+      name: private-case-data
+      mountPath: /var/data
+      sizeGB: 1
