@@ -131,3 +131,11 @@ API additions: PATCH /cases/{id}/owner, POST /cases/{id}/actions, POST /cases/{i
 Validation: 47 API tests pass locally; seven new workflow tests cover ownership, actions, timestamps, stale revisions, legacy history and failure rollback. No new AI accuracy claim is made. KPIs and live Gmail authorization remain pending. The updated frontend needs deployment and browser acceptance before sharing the new feature as live.
 
 See [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md) for dated milestones, measured test execution time, limitations, acceptance steps and the planned KPI definitions. Reported names and manual activity times are not verified identities or proof of external communication. Do not use public-demo data to evaluate employees.
+
+## ASAP and checkpoints
+
+Immediate actions no longer require a made-up deadline. Choose ASAP for prompt work, Follow-up checkpoint for deliberate pursuit, or an explicit promised client update/vendor response/other commitment. Dated types require a date; ASAP does not. Existing saved dates are preserved.
+
+Use Show active cases needing attention for recorded-workflow gaps and overdue checkpoints/commitments. Acknowledgment elapsed time is measured from known case creation; unknown legacy history is shown as unknown. It is not a company SLA or evidence of inaction. An assigned action is a plan, not proof it was performed. Complete it with an outcome and separately record any client communication.
+
+Actor name is remembered in memory on the current page only. This convenience is not authentication. Responsibility defaults to case owner or reported actor. API ActionCreate accepts optional due_at and kind = immediate (default), follow_up, client_update, vendor_response, or commitment. Non-immediate types require due_at. 53 distinct API tests pass and a local browser ASAP-save/reload check passed. See DEVELOPMENT_LOG.md for measured execution time and remaining limitations.

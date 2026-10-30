@@ -1,7 +1,7 @@
 """Case ownership, actions and append-only application events."""
 import copy, datetime, uuid
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 def now():return datetime.datetime.now(datetime.timezone.utc).isoformat()
 def record(case,kind,details,actor='System',occurred_at=None,source='system'):
@@ -17,10 +17,16 @@ class ActionCreate(Change):
  description:str=Field(min_length=1,max_length=600)
  responsible:str=Field(min_length=1,max_length=100)
  waiting_on:str=Field(default='',max_length=100)
- due_at:datetime.datetime
+ kind:str=Field(default='immediate',pattern=r'^(immediate|follow_up|client_update|vendor_response|commitment)$')
+ due_at:datetime.datetime|None=None
+ @model_validator(mode='after')
+ def deadline(self):
+  if self.kind!='immediate' and self.due_at is None:raise ValueError('A checkpoint or commitment needs a date/time')
+  return self
  @field_validator('due_at')
  @classmethod
  def aware(cls,value):
+  if value is None:return value
   if value.tzinfo is None:raise ValueError('Include a timezone')
   return value.astimezone(datetime.timezone.utc)
 class ActionFinish(Change):
@@ -56,7 +62,7 @@ def install(app,m):
  def action(case_id:str,data:ActionCreate):
   def work(c):
    if len(c.workflow['actions'])>=100:raise HTTPException(409,'Case action limit reached.')
-   item=dict(id=uuid.uuid4().hex,description=data.description,responsible=data.responsible,waiting_on=data.waiting_on,due_at=data.due_at.isoformat(),created_at=now(),completed_at=None,outcome=None)
+   item=dict(id=uuid.uuid4().hex,description=data.description,responsible=data.responsible,waiting_on=data.waiting_on,kind=data.kind,due_at=data.due_at.isoformat() if data.due_at else None,created_at=now(),completed_at=None,outcome=None)
    c.workflow['actions'].append(item);record(c,'action_assigned',copy.deepcopy(item),data.actor,source='manual')
   return change(case_id,data,work)
  @app.post('/cases/{case_id}/actions/{action_id}/complete')
@@ -71,3 +77,34 @@ def install(app,m):
  @app.post('/cases/{case_id}/activities')
  def activity(case_id:str,data:Activity):
   return change(case_id,data,lambda c:record(c,data.kind,data.details,data.actor,data.occurred_at.isoformat() if data.occurred_at else None,'manual'),allow_resolved=True)
+
+
+def attention(case, at=None):
+ """Descriptive signals; absence of a manual record is not proof of inaction."""
+ at=at or datetime.datetime.now(datetime.timezone.utc)
+ def parse(value):
+  try:
+   dt=datetime.datetime.fromisoformat(value)
+   return dt if dt.tzinfo else None
+  except (ValueError,TypeError):return None
+ active=not case.deleted_at and case.status!='Resolved'
+ events=case.workflow['events'];created=parse(case.created_at)
+ responses=[parse(e.get('occurred_at')) for e in events if e.get('kind')=='initial_response' and e.get('source')=='manual']
+ responses=[dt for dt in responses if dt is not None and dt<=at]
+ first=min(responses) if responses else None
+ elapsed=int((at-created).total_seconds()) if created and created<=at else None
+ response_seconds=int((first-created).total_seconds()) if first and created and first>=created else None
+ signals=[]
+ if active and not first:
+  signals.append('Acknowledgment not recorded' if created else 'Earlier response history unknown')
+ open_actions=[a for a in case.workflow['actions'] if not a.get('completed_at')]
+ overdue=[]
+ if active:
+  for a in open_actions:
+   due=parse(a.get('due_at'))
+   if due and due<at:overdue.append({'id':a['id'],'kind':a.get('kind','legacy_due'),'description':a['description']})
+  if any(a.get('waiting_on') and not a.get('due_at') for a in open_actions):signals.append('Waiting without a follow-up checkpoint')
+  for label,kind in [('Follow-up due','follow_up'),('Client update commitment overdue','client_update'),('Vendor response commitment overdue','vendor_response')]:
+   if any(a['kind']==kind for a in overdue):signals.append(label)
+  if any(a['kind'] not in ('follow_up','client_update','vendor_response') for a in overdue):signals.append('Dated action overdue')
+ return dict(signals=signals,elapsed_since_creation_seconds=elapsed,first_recorded_response_seconds=response_seconds,acknowledgment_recorded=bool(first),overdue_actions=overdue,clock_basis='Case creation; not inbox receipt. Manual activity is self-reported.',active=active)

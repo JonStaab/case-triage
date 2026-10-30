@@ -251,7 +251,7 @@ def priority_explanation(case):
 
 
 def case_response(case):
-    return {**case_to_dict(case), "priority_explanation": priority_explanation(case)}
+    return {**case_to_dict(case), "priority_explanation": priority_explanation(case), "attention": case_workflow.attention(case)}
 
 
 def check_revision(case, expected):

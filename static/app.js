@@ -1,6 +1,7 @@
 const $ = selector => document.querySelector(selector);
 let selectedId = null;
 let queueView = 'active';
+let attentionOnly = false;
 let intakeVersion = 0;
 let intakeClarifications = [];
 let intakeEmail = null;
@@ -201,7 +202,8 @@ function showSuggestion(container, suggestion, context, callbacks) {
     }
 }
 async function loadCases() {
-    const cases = await api('/cases?view=' + queueView);
+    const allCases = await api('/cases?view=' + queueView);
+    const cases = attentionOnly ? allCases.filter(c => c.attention?.active && c.attention.signals.length) : allCases;
     const container = $('#cases');
     container.replaceChildren();
     $('#count').textContent = `(${cases.length})`;
@@ -215,6 +217,7 @@ async function loadCases() {
         row.append(top,
             el('small', c.issue_description.length > 130 ? c.issue_description.slice(0, 130) + '…' : c.issue_description),
             el('small', `${c.status || 'Open'} · ${c.unique_id}`));
+        if(c.attention?.active && c.attention.signals.length)row.append(el('small',c.attention.signals.join(' · ')));
         row.onclick = () => openCase(c.unique_id);
         row.dataset.caseId = c.unique_id;
         container.append(row);
@@ -416,3 +419,5 @@ function reviewEmailDraft(draft) {
     invalidateIntake(); $('#create').scrollIntoView({behavior:'smooth'});
     notice('Email draft loaded. Review the source and customer tier, then request AI triage or enter manual ratings.');
 }
+
+$('#attention-only').onchange=async event=>{attentionOnly=event.target.checked;try{await loadCases();}catch(error){notice(error.message,true);}};

@@ -39,3 +39,17 @@ Define business hours, timezone, ownership changes, waiting periods, reopened ca
 Vantaca Scout's guide describes source citations and user feedback: https://support.vantaca.com/hc/en-us/articles/32820943372571-Scout-User-Guide . The exact chatbot development/rollout article recalled by the user was not located in this search.
 
 Vanta (a different company) describes evaluation datasets and feedback loops: https://www.vanta.com/resources/vanta-ai-quality-evaluation-maturity-model . These are references for transparent explanation, not proof that this prototype meets either company's standards. No affiliation or endorsement is claimed.
+
+## October 30 — ASAP actions and meaningful checkpoints
+
+User testing showed that forcing a due date on an immediate PM action encouraged invented deadlines. Immediate actions now default to ASAP and can be saved without a date. Follow-up checkpoints, promised client updates, promised vendor responses and other dated commitments require an intentional date/time. Existing action dates remain intact and are labeled legacy dated actions rather than retroactively treated as promises.
+
+The queue can filter active cases needing attention. Signals distinguish acknowledgment not recorded, earlier history unknown, waiting without a follow-up checkpoint, follow-up due, overdue client updates, overdue vendor responses and other overdue dated actions. Resolved/trashed cases stop generating active signals. Completing a task removes its overdue signal; it does not fabricate an acknowledgment, email sent, or client update.
+
+The elapsed-time display starts at known case creation, not Gmail receipt. It is not an SLA score or a verified reaction time. An explicit manually reported initial_response event is needed to stop the acknowledgment-not-recorded signal. Legacy missing timestamps remain unknown. No company business-hours or response-window policy has been set.
+
+Validation: 53 distinct API tests pass; the final suite execution took 10.322 seconds. Six added tests cover undated ASAP actions, required dates for commitments, signal removal after completion, explicit response event/clock handling, legacy unknown history/closed-case behavior and preservation of old dated actions. A local browser test saved an ASAP action without a date, defaulted responsibility from the reported actor name, displayed the waiting/checkpoint flag, and verified the saved action after reload. No new live AI evaluation was needed or run. Deployment remains pending.
+
+Small usability changes: actor name is remembered only in page memory (not authenticated identity); action responsibility defaults to the case owner or reported actor. Timeline entries use readable descriptions rather than raw JSON. This avoids repeated typing without pretending that public-demo names are verified.
+
+Timeline display polish: readable event names and descriptions replace raw JSON. Each entry shows the activity time and actor once; a separate 'Logged later' timestamp appears when recording differs by at least one minute. Both original timestamps remain stored. JavaScript syntax check passed.
